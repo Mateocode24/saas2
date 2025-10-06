@@ -22,7 +22,6 @@ const MAKE_WEBHOOK = "https://hook.eu2.make.com/81dm95qt94xxuqail07pir4iiofrmi3b
 // Route pour recevoir les pageviews
 app.post("/track", async (req, res) => {
   try {
-    // On ne touche pas à l'IP côté serveur, on laisse le payload tel quel
     const payload = req.body || {};
 
     // Envoi au Webhook Make
@@ -56,24 +55,30 @@ app.get("/script.js", (req, res) => {
 
   function sendPageview(){
     try{
-      fetch(ENDPOINT, {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          site_id: SITE_ID,
-          events: [{
-            id: uid(),
-            t: Date.now(),
-            type: "pageview",
-            ctx: {
-              url: location.href,
-              path: location.pathname,
-              ua: navigator.userAgent
-            }
-          }]
-        })
-      }).catch(()=>{});
-      console.log("Pageview envoyée à /track");
+      // Récupérer l'IP publique du visiteur via ipify
+      fetch("https://api.ipify.org?format=json")
+        .then(r => r.json())
+        .then(data => {
+          fetch(ENDPOINT, {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              site_id: SITE_ID,
+              visitor_ip: data.ip, // vraie IP du client
+              events: [{
+                id: uid(),
+                t: Date.now(),
+                type: "pageview",
+                ctx: {
+                  url: location.href,
+                  path: location.pathname,
+                  ua: navigator.userAgent
+                }
+              }]
+            })
+          }).catch(()=>{});
+          console.log("Pageview envoyée à /track avec IP:", data.ip);
+        });
     }catch(e){}
   }
 

@@ -1,4 +1,4 @@
-// server.js — Tracker MVP prêt à push sur Railway (debug Make inclus)
+// server.js — Tracker MVP prêt à push sur Railway (Make debug inclus)
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch"); // npm i node-fetch@2
@@ -53,30 +53,22 @@ app.post("/track", async (req, res) => {
       const ts = ev && ev.t ? ev.t : now;
       const ref = (ev && ev.ctx && ev.ctx.ref) || req.get("Referer") || "";
 
-      const rec = { site_id: payload.site_id, domain, path, ts, ua, ip, ref };
-      visits.push(rec);
-
-      if (visits.length > 50000) visits.shift(); // limiter mémoire
+      visits.push({ site_id: payload.site_id, domain, path, ts, ua, ip, ref });
+      if (visits.length > 50000) visits.shift();
     }
 
-    // Forward vers Make avec logs
-    (async () => {
-      try {
-        console.log("→ Envoi payload à Make:", JSON.stringify(payload, null, 2));
-        const controller = new AbortController();
-        const to = setTimeout(() => controller.abort(), 4000);
-        const response = await fetch(MAKE_WEBHOOK, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-        clearTimeout(to);
-        console.log("→ Forward Make OK, status:", response.status);
-      } catch (e) {
-        console.error("❌ Erreur forward Make:", e.message);
-      }
-    })();
+    // Forward vers Make et attendre la réponse
+    try {
+      console.log("📩 Forward vers Make:", JSON.stringify(payload));
+      const response = await fetch(MAKE_WEBHOOK, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      console.log("✅ Forward Make OK, status:", response.status);
+    } catch (e) {
+      console.error("❌ Erreur forward Make:", e.message);
+    }
 
     return res.json({ ok: true });
   } catch (err) {
@@ -121,10 +113,27 @@ app.get("/script.js", (req, res) => {
 
   function sendPageview(){
     try{
-      var payload = { site_id: SITE_ID, events:[{ id: uid(), t: Date.now(), type:"pageview", ctx:{ url: location.href, path: location.pathname, ua: navigator.userAgent, ref: document.referrer || "" } }]};
-      if(navigator.sendBeacon){navigator.sendBeacon(ENDPOINT, JSON.stringify(payload));}
-      else{fetch(ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),keepalive:true}).catch(()=>{});}
-    }catch(e){console.error("Tracker error:", e);}
+      var payload = {
+        site_id: SITE_ID,
+        events:[{ id: uid(), t: Date.now(), type:"pageview", ctx:{
+          url: location.href,
+          path: location.pathname,
+          ua: navigator.userAgent,
+          ref: document.referrer || ""
+        }}]
+      };
+      console.log("🌐 Envoi pageview :", payload);
+      if(navigator.sendBeacon){
+        navigator.sendBeacon(ENDPOINT, JSON.stringify(payload));
+      } else {
+        fetch(ENDPOINT,{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(payload),
+          keepalive:true
+        }).catch(console.error);
+      }
+    } catch(e){ console.error("Tracker error:", e); }
   }
 
   if(document.readyState==="complete") sendPageview();
@@ -139,4 +148,3 @@ app.get("/", (req, res) => res.send("✅ Tracker MVP ready — debug Make"));
 // ------------------- START SERVER -------------------
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, ()=> console.log("✅ Tracker listening on port", PORT));
-

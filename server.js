@@ -1,4 +1,4 @@
-// server.js — Tracker MVP prêt à push sur Railway (sans emails)
+// server.js — Tracker MVP prêt à push sur Railway (debug Make inclus)
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch"); // npm i node-fetch@2
@@ -16,9 +16,10 @@ app.use((req, res, next) => {
   next();
 });
 
+// Webhook Make (à configurer dans Railway)
 const MAKE_WEBHOOK = process.env.MAKE_WEBHOOK || "https://hook.eu2.make.com/81dm95qt94xxuqail07pir4iiofrmi3b";
 
-// ------------------- STORAGE IN MEMORY (MVP) -------------------
+// ------------------- STOCKAGE EN MÉMOIRE -------------------
 const visits = []; // { site_id, domain, path, ts, ua, ip, ref }
 
 // ------------------- HELPERS -------------------
@@ -35,8 +36,6 @@ function extractDomain(urlOrHost) {
 app.post("/track", async (req, res) => {
   try {
     const payload = req.body || {};
-
-    // validation minimale
     if (!payload.site_id || !Array.isArray(payload.events)) {
       return res.status(400).json({ ok: false, error: "Invalid payload (site_id + events required)" });
     }
@@ -57,23 +56,26 @@ app.post("/track", async (req, res) => {
       const rec = { site_id: payload.site_id, domain, path, ts, ua, ip, ref };
       visits.push(rec);
 
-      // limite mémoire
-      if (visits.length > 50000) visits.shift();
+      if (visits.length > 50000) visits.shift(); // limiter mémoire
     }
 
-    // forward vers Make (fire-and-forget)
+    // Forward vers Make avec logs
     (async () => {
       try {
+        console.log("→ Envoi payload à Make:", JSON.stringify(payload, null, 2));
         const controller = new AbortController();
         const to = setTimeout(() => controller.abort(), 4000);
-        await fetch(MAKE_WEBHOOK, {
+        const response = await fetch(MAKE_WEBHOOK, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
           signal: controller.signal
         });
         clearTimeout(to);
-      } catch (e) { /* ignore */ }
+        console.log("→ Forward Make OK, status:", response.status);
+      } catch (e) {
+        console.error("❌ Erreur forward Make:", e.message);
+      }
     })();
 
     return res.json({ ok: true });
@@ -84,8 +86,6 @@ app.post("/track", async (req, res) => {
 });
 
 // ------------------- ADMIN ENDPOINTS -------------------
-
-// résumé par site/domain
 app.get("/admin/summary", (req, res) => {
   const bySite = {};
   for (const v of visits) {
@@ -97,14 +97,12 @@ app.get("/admin/summary", (req, res) => {
   res.json(bySite);
 });
 
-// export CSV par site/domain
 app.get("/admin/export/:site", (req, res) => {
   const site = req.params.site;
   const rows = visits
     .filter(v => v.site_id === site || v.domain === site)
     .map(v => `${new Date(v.ts).toISOString()},${v.site_id},${v.domain},${v.path},"${(v.ua||"").replace(/"/g,'""')}",${v.ip || ""},${(v.ref||"")}`);
   const csv = 'timestamp,site_id,domain,path,user_agent,ip,referrer\n' + rows.join('\n');
-
   res.setHeader('Content-disposition', `attachment; filename=${site.replace(/[^a-z0-9]/gi,'_')}-visits.csv`);
   res.set('Content-Type', 'text/csv');
   res.send(csv);
@@ -119,44 +117,26 @@ app.get("/script.js", (req, res) => {
   var ENDPOINT = ORIGIN + "/track";
   var SITE_ID = (new URL(document.currentScript.src)).searchParams.get("site") || "${siteId}";
 
-  function uid(){
-    return ([1e7]+-1e3+-4e3+-8e3+-1e11)
-      .replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
-  }
+  function uid(){return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));}
 
   function sendPageview(){
     try{
-      var payload = {
-        site_id: SITE_ID,
-        events: [{
-          id: uid(),
-          t: Date.now(),
-          type: "pageview",
-          ctx: {
-            url: location.href,
-            path: location.pathname,
-            ua: navigator.userAgent,
-            ref: document.referrer || ""
-          }
-        }]
-      };
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(ENDPOINT, JSON.stringify(payload));
-      } else {
-        fetch(ENDPOINT, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload), keepalive: true }).catch(()=>{});
-      }
-    }catch(e){}
+      var payload = { site_id: SITE_ID, events:[{ id: uid(), t: Date.now(), type:"pageview", ctx:{ url: location.href, path: location.pathname, ua: navigator.userAgent, ref: document.referrer || "" } }]};
+      if(navigator.sendBeacon){navigator.sendBeacon(ENDPOINT, JSON.stringify(payload));}
+      else{fetch(ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),keepalive:true}).catch(()=>{});}
+    }catch(e){console.error("Tracker error:", e);}
   }
 
-  if (document.readyState === "complete") sendPageview();
+  if(document.readyState==="complete") sendPageview();
   else addEventListener("load", sendPageview);
 })();
   `);
 });
 
-// health check
-app.get("/", (req, res) => res.send("✅ Tracker MVP ready — no emails"));
+// Health check
+app.get("/", (req, res) => res.send("✅ Tracker MVP ready — debug Make"));
 
 // ------------------- START SERVER -------------------
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, ()=> console.log("✅ Tracker listening on port", PORT));
+

@@ -1,3 +1,4 @@
+
 // server.js — Tracker MVP prêt à push sur Railway (Make debug inclus)
 const express = require("express");
 const cors = require("cors");
@@ -36,6 +37,10 @@ function extractDomain(urlOrHost) {
 app.post("/track", async (req, res) => {
   try {
     const payload = req.body || {};
+
+    // Debug : log immédiat pour vérifier si le hit arrive
+    console.log("📩 /track reçu, payload :", JSON.stringify(payload, null, 2));
+
     if (!payload.site_id || !Array.isArray(payload.events)) {
       return res.status(400).json({ ok: false, error: "Invalid payload (site_id + events required)" });
     }
@@ -57,9 +62,8 @@ app.post("/track", async (req, res) => {
       if (visits.length > 50000) visits.shift();
     }
 
-    // Forward vers Make et attendre la réponse
+    // Forward vers Make et test ping
     try {
-      console.log("📩 Forward vers Make:", JSON.stringify(payload));
       const response = await fetch(MAKE_WEBHOOK, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
